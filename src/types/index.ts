@@ -216,3 +216,30 @@ export interface PaginatedResponse<T> {
   pageSize: number;
   hasMore: boolean;
 }
+
+// ============ SMS & PARSING ============
+export interface RawSMS {
+  id: string;
+  sender: string;
+  body: string;
+  timestamp: number;
+  read: boolean;
+}
+
+export interface ParsedSMS {
+  type: TransactionType;
+  amount: number;
+  merchant?: string;
+  account?: string;
+  date: Date;
+  reference?: string;
+  bank?: string;
+  rawSMS: RawSMS;
+}
+
+export interface SMSTransaction extends Transaction {
+  sms_id?: string;
+  sms_reference?: string;
+  sms_body?: string;
+}
+

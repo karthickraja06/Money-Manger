@@ -6,11 +6,25 @@
 import { supabase } from './supabase';
 import { User } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { v4 as uuidv4 } from 'uuid';
 
 export class AuthService {
   private static readonly USER_STORAGE_KEY = 'money_manager_user';
   private static readonly DEVICE_ID_STORAGE_KEY = 'money_manager_device_id';
+
+  /**
+   * Generate a simple UUID v4-like string using timestamp + random
+   * This works in React Native without crypto dependencies
+   */
+  private static generateUUID(): string {
+    // Use timestamp + random to generate unique IDs
+    const timestamp = Date.now().toString(36);
+    const random1 = Math.random().toString(36).substring(2, 15);
+    const random2 = Math.random().toString(36).substring(2, 15);
+    const random3 = Math.random().toString(36).substring(2, 15);
+    
+    // Format similar to UUID
+    return `${random1.substring(0, 8)}-${random2.substring(0, 4)}-4${random2.substring(5, 8)}-${random3.substring(0, 4)}-${timestamp}${random1.substring(8)}`.toLowerCase();
+  }
 
   /**
    * Initialize or get existing user
@@ -26,7 +40,7 @@ export class AuthService {
       // Create new device-based user
       let deviceId = await AsyncStorage.getItem(this.DEVICE_ID_STORAGE_KEY);
       if (!deviceId) {
-        deviceId = uuidv4();
+        deviceId = this.generateUUID();
         await AsyncStorage.setItem(this.DEVICE_ID_STORAGE_KEY, deviceId);
       }
 
@@ -50,9 +64,10 @@ export class AuthService {
       };
 
       await AsyncStorage.setItem(this.USER_STORAGE_KEY, JSON.stringify(user));
+      console.log(`✅ User initialized: ${user.id} (device: ${deviceId})`);
       return user;
     } catch (error) {
-      console.error('Error initializing user:', error);
+      console.error('❌ Error initializing user:', error);
       throw error;
     }
   }

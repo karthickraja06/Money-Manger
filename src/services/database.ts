@@ -164,7 +164,7 @@ export class DatabaseService {
     return data || [];
   }
 
-  static async createCategory(userId: string, category: Omit<Category, 'id' | 'created_at'>): Promise<Category> {
+  static async createCategory(userId: string, category: Omit<Category, 'id' | 'created_at' | 'user_id'>): Promise<Category> {
     const { data, error } = await supabase
       .from('categories')
       .insert({
