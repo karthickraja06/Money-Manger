@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthService } from '@/src/services/auth';
+import { useStore } from '@/src/store/appStore';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -13,6 +14,7 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const setUser = useStore((state) => state.setUser);
 
   useEffect(() => {
     // Initialize user on app startup
@@ -20,6 +22,7 @@ export default function RootLayout() {
       try {
         console.log('🚀 Initializing Money Manager app...');
         const user = await AuthService.initializeUser();
+        setUser(user);
         console.log(`✅ App ready. User ID: ${user.id}`);
       } catch (error) {
         console.error('❌ Failed to initialize app:', error);
@@ -27,7 +30,7 @@ export default function RootLayout() {
     };
 
     initializeApp();
-  }, []);
+  }, [setUser]);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

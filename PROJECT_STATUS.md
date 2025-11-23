@@ -71,7 +71,8 @@
 ✅ src/services/sms.ts               - SMS reading (scaffolding)
 ✅ src/services/parser.ts            - SMS parser (6 banks)
 ✅ src/services/categorizer.ts       - Auto-categorization
-⏳ src/services/smsSync.ts           - Sync orchestration (todo)
+✅ src/services/accountDetector.ts   - Account detection & SMS processing
+⏳ src/services/smsSync.ts           - Full sync orchestration (todo)
 ```
 
 ### Types & Utils
