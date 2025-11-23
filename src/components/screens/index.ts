@@ -17,6 +17,9 @@ export { SettingsScreen } from './SettingsScreen';
 export { AdvancedSearchScreen } from './AdvancedSearchScreen';
 export { ExportScreen } from './ExportScreen';
 export { BudgetScreen } from './BudgetScreen';
+export { NotificationsScreen } from './NotificationsScreen';
+export { ThemeSettingsScreen } from './ThemeSettingsScreen';
+export { AdvancedAnalyticsScreen } from './AdvancedAnalyticsDetailScreen';
 
 /**
  * Screen Configuration Map

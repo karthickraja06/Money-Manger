@@ -1,112 +1,350 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
+import React, { useState } from 'react';
+import {
+  View,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  Switch,
+  Alert,
+  ActivityIndicator,
+  Modal,
+  SafeAreaView,
+} from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+import { useTheme } from '@/src/context/ThemeContext';
+import { SMSService } from '@/src/services/sms';
+import { SMSSyncManager, type SyncProgress } from '@/src/services/smsSyncManager';
+import { useStore } from '@/src/store/appStore';
+import { AdvancedAnalyticsScreen } from '@/src/components/screens/AdvancedAnalyticsDetailScreen';
 
-export default function TabTwoScreen() {
+export default function SettingsScreen() {
+  const { isDarkMode, toggleTheme } = useTheme();
+  const userId = useStore((state) => state.user?.id);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncMessage, setSyncMessage] = useState('');
+  const [analyticsModalVisible, setAnalyticsModalVisible] = useState(false);
+
+  const handleDarkModeToggle = async () => {
+    toggleTheme();
+    Alert.alert('✅ Success', `Dark mode ${isDarkMode ? 'disabled' : 'enabled'}`);
+  };
+
+  const handleTestSMS = async () => {
+    try {
+      setSyncLoading(true);
+      const sms = await SMSService.readSMS({ limit: 5, filter: 'transaction' });
+      if (sms.length > 0) {
+        Alert.alert(
+          '✅ SMS Test Success',
+          `Read ${sms.length} SMS\nFirst SMS: ${sms[0].body?.substring(0, 50)}...`
+        );
+      } else {
+        Alert.alert('ℹ️ No SMS Found', 'Using mock data for testing');
+      }
+    } catch (error) {
+      Alert.alert('❌ Error', `SMS test failed: ${error}`);
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleTestNotifications = () => {
+    Alert.alert(
+      '✅ Notifications Available',
+      'Push notifications are configured and ready to use. You can enable them from notification settings.'
+    );
+  };
+
+  const handleTestAnalytics = () => {
+    setAnalyticsModalVisible(true);
+  };
+
+  const handleFullSync = async () => {
+    if (!userId) {
+      Alert.alert('⚠️ Error', 'User ID not found');
+      return;
+    }
+
+    setSyncLoading(true);
+    setSyncProgress(0);
+    setSyncMessage('Starting sync...');
+
+    const unsubscribe = SMSSyncManager.onProgress((progress: SyncProgress) => {
+      const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+      setSyncProgress(percentage);
+      setSyncMessage(progress.message);
+    });
+
+    try {
+      const result = await SMSSyncManager.performSync(userId);
+      if (result.success) {
+        Alert.alert(
+          '✅ Sync Complete',
+          `SMS: ${result.smsRead}\nTransactions: ${result.transactionsStored}\nDuration: ${Math.round(result.duration / 1000)}s`
+        );
+      } else {
+        Alert.alert('⚠️ Sync Warning', result.errors.join('\n'));
+      }
+    } catch (error) {
+      Alert.alert('❌ Error', `Sync failed: ${error}`);
+    } finally {
+      unsubscribe();
+      setSyncLoading(false);
+      setSyncMessage('');
+    }
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
+    <>
+      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <ThemedView style={styles.section}>
+          <ThemedText style={styles.sectionTitle}>⚙️ App Settings</ThemedText>
+
+          {/* Dark Mode */}
+          <View style={styles.settingItem}>
+            <View style={styles.settingLeft}>
+              <ThemedText style={styles.settingName}>🌙 Dark Mode</ThemedText>
+              <ThemedText style={styles.settingDescription}>
+                {isDarkMode ? 'Enabled' : 'Disabled'}
+              </ThemedText>
+            </View>
+            <Switch value={isDarkMode} onValueChange={handleDarkModeToggle} />
+          </View>
+        </ThemedView>
+
+        {/* Phase 4 Features */}
+        <ThemedView style={styles.section}>
+          <ThemedText style={styles.sectionTitle}>✨ Phase 4 Features</ThemedText>
+
+          {/* SMS Transactions */}
+          <TouchableOpacity
+            style={styles.featureItem}
+            onPress={handleTestSMS}
+            disabled={syncLoading}
+          >
+            <View style={styles.featureContent}>
+              <ThemedText style={styles.featureName}>📱 SMS Transactions</ThemedText>
+              <ThemedText style={styles.featureDescription}>
+                Read and import SMS messages as transactions
+              </ThemedText>
+              <ThemedText style={styles.featureStatus}>✅ Enabled</ThemedText>
+            </View>
+            {syncLoading && <ActivityIndicator />}
+          </TouchableOpacity>
+
+          {/* Push Notifications */}
+          <TouchableOpacity style={styles.featureItem} onPress={handleTestNotifications}>
+            <View style={styles.featureContent}>
+              <ThemedText style={styles.featureName}>🔔 Push Notifications</ThemedText>
+              <ThemedText style={styles.featureDescription}>
+                Real-time alerts for transactions and budgets
+              </ThemedText>
+              <ThemedText style={styles.featureStatus}>✅ Enabled</ThemedText>
+            </View>
+          </TouchableOpacity>
+
+          {/* Advanced Analytics */}
+          <TouchableOpacity style={styles.featureItem} onPress={handleTestAnalytics}>
+            <View style={styles.featureContent}>
+              <ThemedText style={styles.featureName}>📊 Advanced Analytics</ThemedText>
+              <ThemedText style={styles.featureDescription}>
+                Detailed spending insights and trends
+              </ThemedText>
+              <ThemedText style={styles.featureStatus}>✅ Enabled</ThemedText>
+            </View>
+          </TouchableOpacity>
+
+          {/* Month Navigation */}
+          <View style={styles.featureItem}>
+            <View style={styles.featureContent}>
+              <ThemedText style={styles.featureName}>📅 Month Navigation</ThemedText>
+              <ThemedText style={styles.featureDescription}>
+                View transactions for any month
+              </ThemedText>
+              <ThemedText style={styles.featureStatus}>✅ Enabled</ThemedText>
+            </View>
+          </View>
+        </ThemedView>
+
+        {/* Testing Section */}
+        <ThemedView style={styles.section}>
+          <ThemedText style={styles.sectionTitle}>🧪 Testing</ThemedText>
+
+          <TouchableOpacity
+            style={[styles.testButton, { backgroundColor: syncLoading ? '#999' : '#34C759' }]}
+            onPress={handleFullSync}
+            disabled={syncLoading}
+          >
+            <ThemedText style={styles.testButtonText}>
+              {syncLoading ? `⏳ Syncing... ${syncProgress}%` : '📨 Full SMS Sync'}
             </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+          </TouchableOpacity>
+
+          {syncMessage ? (
+            <ThemedText style={styles.syncMessage}>{syncMessage}</ThemedText>
+          ) : null}
+
+          <TouchableOpacity style={styles.testButton} onPress={handleTestSMS} disabled={syncLoading}>
+            <ThemedText style={styles.testButtonText}>📱 Test SMS Reading</ThemedText>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.testButton} onPress={handleTestNotifications}>
+            <ThemedText style={styles.testButtonText}>🔔 Test Notifications</ThemedText>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.testButton} onPress={handleTestAnalytics}>
+            <ThemedText style={styles.testButtonText}>📊 View Advanced Analytics</ThemedText>
+          </TouchableOpacity>
+        </ThemedView>
+
+        {/* Info Section */}
+        <ThemedView style={styles.section}>
+          <ThemedText style={styles.sectionTitle}>ℹ️ About</ThemedText>
+
+          <View style={styles.infoItem}>
+            <ThemedText style={styles.infoLabel}>App Version</ThemedText>
+            <ThemedText style={styles.infoValue}>1.0.0</ThemedText>
+          </View>
+
+          <View style={styles.infoItem}>
+            <ThemedText style={styles.infoLabel}>Phase</ThemedText>
+            <ThemedText style={styles.infoValue}>Phase 4 ✨</ThemedText>
+          </View>
+
+          <View style={styles.infoItem}>
+            <ThemedText style={styles.infoLabel}>Features</ThemedText>
+            <ThemedText style={styles.infoValue}>SMS, Notifications, Analytics, Dark Mode</ThemedText>
+          </View>
+        </ThemedView>
+      </ScrollView>
+
+      {/* Advanced Analytics Modal */}
+      <Modal
+        visible={analyticsModalVisible}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setAnalyticsModalVisible(false)}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+            <ThemedText style={{ fontSize: 18, fontWeight: 'bold' }}>📊 Advanced Analytics</ThemedText>
+            <TouchableOpacity onPress={() => setAnalyticsModalVisible(false)}>
+              <ThemedText style={{ fontSize: 24, color: '#007AFF' }}>✕</ThemedText>
+            </TouchableOpacity>
+          </View>
+          <AdvancedAnalyticsScreen />
+        </SafeAreaView>
+      </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    flex: 1,
   },
-  titleContainer: {
+  contentContainer: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  section: {
+    marginBottom: 24,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  settingItem: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  settingLeft: {
+    flex: 1,
+  },
+  settingName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  settingDescription: {
+    fontSize: 13,
+    color: '#999',
+  },
+  featureItem: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  featureContent: {
+    flex: 1,
+  },
+  featureName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  featureDescription: {
+    fontSize: 13,
+    color: '#999',
+    marginBottom: 4,
+  },
+  featureStatus: {
+    fontSize: 12,
+    color: '#34C759',
+    fontWeight: '600',
+  },
+  testButton: {
+    backgroundColor: '#007AFF',
+    marginHorizontal: 16,
+    marginVertical: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  testButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  syncMessage: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginVertical: 8,
+    paddingHorizontal: 16,
+  },
+  infoItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: '#999',
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

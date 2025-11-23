@@ -8,6 +8,8 @@ export { DatabaseService } from './database';
 export { AuthService } from './auth';
 export { supabase } from './supabase';
 export * from './categoryIntegration';
+export { PushNotificationService } from './pushNotifications';
+export { AdvancedAnalyticsService } from './advancedAnalytics';
 // export { SMSSyncManager } from './smsSyncManager';
 
 // Note: Import SMSSyncManager directly from './smsSyncManager' due to TypeScript resolution

@@ -8,25 +8,49 @@ import {
   RefreshControl,
   FlatList,
   Dimensions,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
 } from 'react-native';
+import { useTheme } from '../../context/ThemeContext';
+import { useFilter } from '../../context/FilterContext';
 import { DatabaseService } from '../../services/database';
+import { SMSService } from '../../services/sms';
+import { SMSSyncManager, type SyncProgress } from '../../services/smsSyncManager';
 import { useStore } from '../../store/appStore';
 import { Account, Transaction } from '../../types';
+import { FilterScreen } from './FilterScreen';
+import { FilteredResultsScreen } from './FilteredResultsScreen';
+import { SearchScreen } from './SearchScreen';
+import { FilterPresetsScreen } from './FilterPresetsScreen';
 
 const { width } = Dimensions.get('window');
 
 export const DashboardScreen: React.FC = () => {
+  const { isDarkMode } = useTheme();
+  const { hasActiveFilters } = useFilter();
   const userId = useStore((state) => state.user?.id);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
+  const [smsSync, setSmsSync] = useState({ loading: false, progress: 0, message: '' });
+  const [syncModalVisible, setSyncModalVisible] = useState(false);
+  const [smsPermissionGranted, setSmsPermissionGranted] = useState(false);
+  const [permissionCheckDone, setPermissionCheckDone] = useState(false);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [showFilteredResults, setShowFilteredResults] = useState(false);
+  const [searchModalVisible, setSearchModalVisible] = useState(false);
+  const [presetsModalVisible, setPresetsModalVisible] = useState(false);
 
   useEffect(() => {
     if (userId) {
       loadDashboardData();
+      checkSmsPermissionStatus();
     }
-  }, [userId]);
+  }, [userId, selectedMonth]);
 
   const loadDashboardData = async () => {
     if (!userId) return;
@@ -35,7 +59,7 @@ export const DashboardScreen: React.FC = () => {
       setLoading(true);
       const [accts, txns] = await Promise.all([
         DatabaseService.getAccounts(userId),
-        DatabaseService.getTransactions(userId, 10, 0).then(r => r.data),
+        DatabaseService.getTransactions(userId, 100, 0).then(r => r.data),
       ]);
       setAccounts(accts);
       setRecentTransactions(txns);
@@ -43,6 +67,100 @@ export const DashboardScreen: React.FC = () => {
       console.error('Failed to load dashboard data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkSmsPermissionStatus = async () => {
+    try {
+      // Check if SMS permission has been previously granted
+      const granted = await SMSService.checkPermissionStatus();
+      if (granted) {
+        setSmsPermissionGranted(true);
+        console.log('✅ SMS permission already granted');
+      }
+    } catch (error) {
+      console.log('ℹ️ First time - SMS permission not yet requested');
+    } finally {
+      setPermissionCheckDone(true);
+    }
+  };
+
+  const handleRequestSMSPermission = async () => {
+    try {
+      console.log('📱 Requesting SMS permission...');
+      const granted = await SMSService.requestPermissions();
+      
+      if (granted) {
+        setSmsPermissionGranted(true);
+        Alert.alert(
+          '✅ Success', 
+          'SMS permission granted! You can now import all your SMS transactions.'
+        );
+      } else {
+        Alert.alert(
+          '⚠️ Permission Denied', 
+          'SMS permission is required to read transactions. Please enable it in app settings.'
+        );
+      }
+    } catch (error) {
+      Alert.alert('❌ Error', `Failed to request SMS permission: ${error}`);
+    }
+  };
+
+  const handleSyncSMS = async () => {
+    if (!userId) return;
+    
+    setSyncModalVisible(true);
+    setSmsSync({ loading: true, progress: 0, message: 'Starting sync...' });
+
+    const unsubscribe = SMSSyncManager.onProgress((progress: SyncProgress) => {
+      const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+      setSmsSync({
+        loading: true,
+        progress: percentage,
+        message: progress.message,
+      });
+    });
+
+    try {
+      const result = await SMSSyncManager.performSync(userId);
+      
+      if (result.success) {
+        setSmsSync({
+          loading: false,
+          progress: 100,
+          message: `✅ Sync complete! ${result.smsRead} SMS read, ${result.transactionsStored} transactions added.`,
+        });
+        
+        // Reload dashboard data
+        await loadDashboardData();
+        
+        Alert.alert(
+          '✅ Sync Successful',
+          `SMS: ${result.smsRead}\nTransactions: ${result.transactionsStored}\nDuration: ${Math.round(result.duration / 1000)}s`
+        );
+      } else {
+        setSmsSync({
+          loading: false,
+          progress: 0,
+          message: `❌ Sync failed: ${result.errors.join(', ')}`,
+        });
+        
+        Alert.alert(
+          '❌ Sync Failed',
+          result.errors.join('\n') || 'An error occurred during sync'
+        );
+      }
+    } catch (error) {
+      setSmsSync({
+        loading: false,
+        progress: 0,
+        message: `❌ Error: ${error}`,
+      });
+      Alert.alert('❌ Error', `Sync error: ${error}`);
+    } finally {
+      unsubscribe();
+      setTimeout(() => setSyncModalVisible(false), 2000);
     }
   };
 
@@ -79,41 +197,73 @@ export const DashboardScreen: React.FC = () => {
       .reduce((sum, t) => sum + t.net_amount, 0);
   };
 
+  // Get transactions for SELECTED month (not current month)
+  const getMonthTransactions = () => {
+    const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
+    const monthEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 1);
+    monthEnd.setTime(monthEnd.getTime() - 1);
+
+    return recentTransactions.filter(t => {
+      const txnDate = new Date(t.date);
+      return txnDate >= monthStart && txnDate <= monthEnd;
+    });
+  };
+
   const getMonthlyExpense = () => {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    
-    return recentTransactions
-      .filter(t => {
-        const txnDate = new Date(t.date);
-        return txnDate >= monthStart && t.is_expense;
-      })
+    return getMonthTransactions()
+      .filter(t => t.is_expense)
       .reduce((sum, t) => sum + t.net_amount, 0);
+  };
+
+  const getMonthlyIncome = () => {
+    return getMonthTransactions()
+      .filter(t => t.is_income)
+      .reduce((sum, t) => sum + t.net_amount, 0);
+  };
+
+  const getMonthlyNet = () => {
+    return getMonthlyIncome() - getMonthlyExpense();
+  };
+
+  const previousMonth = () => {
+    const newDate = new Date(selectedMonth);
+    newDate.setMonth(newDate.getMonth() - 1);
+    setSelectedMonth(newDate);
+  };
+
+  const nextMonth = () => {
+    const newDate = new Date(selectedMonth);
+    newDate.setMonth(newDate.getMonth() + 1);
+    setSelectedMonth(newDate);
+  };
+
+  const formatMonth = (date: Date) => {
+    return date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
   };
 
   const renderStatCard = (title: string, value: string, emoji: string, color: string) => (
     <View style={[styles.statCard, { backgroundColor: color }]}>
       <Text style={styles.statEmoji}>{emoji}</Text>
-      <Text style={styles.statTitle}>{title}</Text>
-      <Text style={styles.statValue}>{value}</Text>
+      <Text style={[styles.statTitle, { color: isDarkMode ? '#aaa' : '#666' }]}>{title}</Text>
+      <Text style={[styles.statValue, { color: isDarkMode ? '#fff' : '#000' }]}>{value}</Text>
     </View>
   );
 
   const renderAccountMiniCard = ({ item }: { item: Account }) => (
-    <View style={styles.accountMini}>
+    <View style={[styles.accountMini, { backgroundColor: isDarkMode ? '#2a2a2a' : '#fff', borderColor: isDarkMode ? '#444' : '#f0f0f0' }]}>
       <View style={styles.accountMiniHeader}>
-        <Text style={styles.accountMiniBankName}>{item.bank_name}</Text>
+        <Text style={[styles.accountMiniBankName, { color: isDarkMode ? '#fff' : '#000' }]}>{item.bank_name}</Text>
         <Text style={[styles.accountMiniStatus, { color: item.is_active ? '#34C759' : '#FF3B30' }]}>
           {item.is_active ? '●' : '○'}
         </Text>
       </View>
-      <Text style={styles.accountMiniNumber}>•••• {item.account_number.slice(-4)}</Text>
+      <Text style={[styles.accountMiniNumber, { color: isDarkMode ? '#aaa' : '#999' }]}>•••• {item.account_number.slice(-4)}</Text>
       <Text style={styles.accountMiniBalance}>₹{item.balance.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</Text>
     </View>
   );
 
   const renderRecentTransaction = ({ item }: { item: Transaction }) => (
-    <View style={styles.transactionRow}>
+    <View style={[styles.transactionRow, { backgroundColor: isDarkMode ? '#2a2a2a' : '#fff' }]}>
       <View style={styles.transactionRowLeft}>
         <View style={[
           styles.transactionIcon,
@@ -124,8 +274,8 @@ export const DashboardScreen: React.FC = () => {
           </Text>
         </View>
         <View>
-          <Text style={styles.transactionName}>{item.merchant || 'Transaction'}</Text>
-          <Text style={styles.transactionTime}>
+          <Text style={[styles.transactionName, { color: isDarkMode ? '#fff' : '#000' }]}>{item.merchant || 'Transaction'}</Text>
+          <Text style={[styles.transactionTime, { color: isDarkMode ? '#aaa' : '#999' }]}>
             {new Date(item.date).toLocaleTimeString('en-IN', { 
               hour: '2-digit', 
               minute: '2-digit' 
@@ -143,100 +293,264 @@ export const DashboardScreen: React.FC = () => {
   );
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.greeting}>👋 Hello!</Text>
-        <Text style={styles.date}>{new Date().toLocaleDateString('en-IN', { 
-          weekday: 'long', 
-          month: 'short', 
-          day: 'numeric' 
-        })}</Text>
-      </View>
-
-      {/* Total Balance Card */}
-      <View style={styles.balanceCard}>
-        <View style={styles.balanceCardTop}>
+    <>
+      <ScrollView
+        style={[styles.container, { backgroundColor: isDarkMode ? '#1a1a1a' : '#f9f9f9' }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {/* Header */}
+        <View style={[styles.header, { backgroundColor: isDarkMode ? '#2a2a2a' : '#fff', borderBottomColor: isDarkMode ? '#444' : '#eee' }]}>
           <View>
-            <Text style={styles.balanceLabel}>Total Balance</Text>
-            <Text style={styles.balanceAmount}>
-              ₹{getTotalBalance().toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            <Text style={[styles.greeting, { color: isDarkMode ? '#fff' : '#000' }]}>👋 Hello!</Text>
+            <Text style={[styles.date, { color: isDarkMode ? '#aaa' : '#999' }]}>{new Date().toLocaleDateString('en-IN', { 
+              weekday: 'long', 
+              month: 'short', 
+              day: 'numeric' 
+            })}</Text>
+          </View>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity 
+              onPress={() => setSearchModalVisible(true)}
+              style={styles.headerButton}
+            >
+              <Text style={styles.headerButtonText}>🔍</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => setPresetsModalVisible(true)}
+              style={styles.headerButton}
+            >
+              <Text style={styles.headerButtonText}>⭐</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => setFilterModalVisible(true)}
+              style={[
+                styles.headerButton,
+                { backgroundColor: hasActiveFilters() ? '#007AFF' : (isDarkMode ? '#3a3a3a' : '#f0f0f0') }
+              ]}
+            >
+              <Text style={[
+                styles.headerButtonText,
+                { color: hasActiveFilters() ? '#fff' : (isDarkMode ? '#aaa' : '#999') }
+              ]}>
+                {hasActiveFilters() ? '🔧' : '🔍'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Total Balance Card */}
+        <View style={[styles.balanceCard, { backgroundColor: isDarkMode ? '#0051BA' : '#007AFF' }]}>
+          <View style={styles.balanceCardTop}>
+            <View>
+              <Text style={[styles.balanceLabel, { color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.8)' }]}>Total Balance</Text>
+              <Text style={styles.balanceAmount}>
+                ₹{getTotalBalance().toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </Text>
+            </View>
+            <View style={[styles.balanceIcon, { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.2)' }]}>
+              <Text style={styles.balanceIconText}>💰</Text>
+            </View>
+          </View>
+          <View style={[styles.balanceCardBottom, { borderTopColor: isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.3)' }]}>
+            <Text style={[styles.accountCount, { color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.8)' }]}>{accounts.length} accounts • {accounts.filter(a => a.is_active).length} active</Text>
+          </View>
+        </View>
+
+        {/* SMS Import Section */}
+        <View style={[styles.smsSection, { backgroundColor: isDarkMode ? '#2a2a2a' : '#fff' }]}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: isDarkMode ? '#fff' : '#000' }]}>📱 SMS Transactions</Text>
+            {smsPermissionGranted && (
+              <Text style={[styles.sectionAction, { color: isDarkMode ? '#64B5F6' : '#007AFF' }]}>✅ Permission Granted</Text>
+            )}
+          </View>
+          <View style={styles.smsButtonsContainer}>
+            {!smsPermissionGranted && permissionCheckDone && (
+              <TouchableOpacity 
+                style={[styles.smsButton, { flex: 1, marginRight: 8, backgroundColor: '#FF9500' }]}
+                onPress={handleRequestSMSPermission}
+              >
+                <Text style={styles.smsButtonText}>🔐 Request Permission</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity 
+              style={[styles.smsButton, { flex: !smsPermissionGranted ? 1 : 2, backgroundColor: '#34C759' }]}
+              onPress={handleSyncSMS}
+              disabled={smsSync.loading}
+            >
+              <Text style={styles.smsButtonText}>
+                {smsSync.loading ? '⏳ Syncing...' : '📨 Import SMS'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {smsSync.loading && (
+            <View style={styles.progressContainer}>
+              <View style={[styles.progressBar, { backgroundColor: isDarkMode ? '#444' : '#e0e0e0' }]}>
+                <View 
+                  style={[
+                    styles.progressFill, 
+                    { width: `${smsSync.progress}%` }
+                  ]} 
+                />
+              </View>
+              <Text style={[styles.progressText, { color: isDarkMode ? '#aaa' : '#666' }]}>{smsSync.progress}% - {smsSync.message}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Quick Stats */}
+        <View style={styles.statsContainer}>
+          {renderStatCard('Today Expense', `₹${getTodayExpense().toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, '📊', isDarkMode ? '#3d2020' : '#FFE5E5')}
+          {renderStatCard('Today Income', `₹${getTodayIncome().toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, '📈', isDarkMode ? '#203d20' : '#E5F5E5')}
+          {renderStatCard('This Month', `₹${getMonthlyExpense().toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, '📅', isDarkMode ? '#1f1f3d' : '#E5E5FF')}
+        </View>
+
+        {/* Month Navigation */}
+        <View style={[styles.monthNavigationContainer, { backgroundColor: isDarkMode ? '#2a2a2a' : '#fff', borderRadius: 12 }]}>
+          <TouchableOpacity onPress={previousMonth} style={styles.monthNavButton}>
+            <Text style={[styles.monthNavText, { color: isDarkMode ? '#64B5F6' : '#007AFF' }]}>‹ Prev</Text>
+          </TouchableOpacity>
+          <View style={styles.monthDisplay}>
+            <Text style={[styles.monthText, { color: isDarkMode ? '#fff' : '#000' }]}>{formatMonth(selectedMonth)}</Text>
+            <View style={styles.monthStats}>
+              <View style={styles.monthStat}>
+                <Text style={[styles.monthStatLabel, { color: isDarkMode ? '#aaa' : '#666' }]}>Income</Text>
+                <Text style={[styles.monthStatValue, { color: '#34C759' }]}>
+                  ₹{getMonthlyIncome().toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </Text>
+              </View>
+              <View style={[styles.monthStatDivider, { backgroundColor: isDarkMode ? '#444' : '#f0f0f0' }]} />
+              <View style={styles.monthStat}>
+                <Text style={[styles.monthStatLabel, { color: isDarkMode ? '#aaa' : '#666' }]}>Expense</Text>
+                <Text style={[styles.monthStatValue, { color: '#FF3B30' }]}>
+                  ₹{getMonthlyExpense().toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </Text>
+              </View>
+              <View style={[styles.monthStatDivider, { backgroundColor: isDarkMode ? '#444' : '#f0f0f0' }]} />
+              <View style={styles.monthStat}>
+                <Text style={[styles.monthStatLabel, { color: isDarkMode ? '#aaa' : '#666' }]}>Net</Text>
+                <Text style={[styles.monthStatValue, { color: getMonthlyNet() >= 0 ? '#34C759' : '#FF3B30' }]}>
+                  ₹{getMonthlyNet().toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <TouchableOpacity onPress={nextMonth} style={styles.monthNavButton}>
+            <Text style={[styles.monthNavText, { color: isDarkMode ? '#64B5F6' : '#007AFF' }]}>Next ›</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Accounts Overview */}
+        {accounts.length > 0 && (
+          <View style={[styles.section, { marginHorizontal: 16 }]}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: isDarkMode ? '#fff' : '#000' }]}>Your Accounts</Text>
+              <TouchableOpacity>
+                <Text style={[styles.sectionAction, { color: isDarkMode ? '#64B5F6' : '#007AFF' }]}>View All →</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={accounts.slice(0, 3)}
+              renderItem={renderAccountMiniCard}
+              keyExtractor={(item) => item.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              scrollEnabled={true}
+              style={styles.accountsList}
+            />
+          </View>
+        )}
+
+        {/* Transactions for Selected Month */}
+        {getMonthTransactions().length > 0 ? (
+          <View style={[styles.section, { marginHorizontal: 16 }]}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: isDarkMode ? '#fff' : '#000' }]}>
+                {formatMonth(selectedMonth)} Transactions
+              </Text>
+            </View>
+            <FlatList
+              data={getMonthTransactions()}
+              renderItem={renderRecentTransaction}
+              keyExtractor={(item) => item.id}
+              scrollEnabled={false}
+            />
+          </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateIcon}>📭</Text>
+            <Text style={[styles.emptyStateTitle, { color: isDarkMode ? '#fff' : '#000' }]}>No Transactions</Text>
+            <Text style={[styles.emptyStateText, { color: isDarkMode ? '#aaa' : '#999' }]}>
+              No transactions in {formatMonth(selectedMonth)}. Sync SMS or add transactions manually.
             </Text>
           </View>
-          <View style={styles.balanceIcon}>
-            <Text style={styles.balanceIconText}>💰</Text>
+        )}
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <Text style={[styles.footerText, { backgroundColor: isDarkMode ? '#0051BA' : '#E8F4FF', color: isDarkMode ? '#64B5F6' : '#007AFF' }]}>💡 Tip: Use SMS Import to automatically detect bank transactions</Text>
+        </View>
+      </ScrollView>
+
+      {/* Sync Progress Modal */}
+      <Modal visible={syncModalVisible} transparent={true} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: isDarkMode ? '#2a2a2a' : '#fff' }]}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={[styles.modalTitle, { color: isDarkMode ? '#fff' : '#000' }]}>Syncing SMS Transactions</Text>
+            <View style={[styles.progressBar, { backgroundColor: isDarkMode ? '#444' : '#e0e0e0' }]}>
+              <View 
+                style={[
+                  styles.progressFill, 
+                  { width: `${smsSync.progress}%` }
+                ]} 
+              />
+            </View>
+            <Text style={[styles.modalMessage, { color: isDarkMode ? '#aaa' : '#666' }]}>{smsSync.message}</Text>
+            <Text style={[styles.modalProgress, { color: isDarkMode ? '#fff' : '#000' }]}>{smsSync.progress}%</Text>
           </View>
         </View>
-        <View style={styles.balanceCardBottom}>
-          <Text style={styles.accountCount}>{accounts.length} accounts • {accounts.filter(a => a.is_active).length} active</Text>
-        </View>
-      </View>
+      </Modal>
 
-      {/* Quick Stats */}
-      <View style={styles.statsContainer}>
-        {renderStatCard('Today Expense', `₹${getTodayExpense().toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, '📊', '#FFE5E5')}
-        {renderStatCard('Today Income', `₹${getTodayIncome().toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, '📈', '#E5F5E5')}
-        {renderStatCard('This Month', `₹${getMonthlyExpense().toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, '📅', '#E5E5FF')}
-      </View>
-
-      {/* Accounts Overview */}
-      {accounts.length > 0 && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your Accounts</Text>
-            <TouchableOpacity>
-              <Text style={styles.sectionAction}>View All →</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={accounts.slice(0, 3)}
-            renderItem={renderAccountMiniCard}
-            keyExtractor={(item) => item.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            scrollEnabled={true}
-            style={styles.accountsList}
+      {/* Filter Modal */}
+      <Modal visible={filterModalVisible} transparent={true} animationType="slide">
+        <View style={[styles.filterModalContainer, { backgroundColor: isDarkMode ? '#1a1a1a' : '#f9f9f9' }]}>
+          <FilterScreen
+            onClose={() => {
+              setFilterModalVisible(false);
+            }}
+            onApply={() => {
+              setFilterModalVisible(false);
+              setShowFilteredResults(true);
+            }}
           />
         </View>
-      )}
+      </Modal>
 
-      {/* Recent Transactions */}
-      {recentTransactions.length > 0 && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Transactions</Text>
-            <TouchableOpacity>
-              <Text style={styles.sectionAction}>View All →</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={recentTransactions.slice(0, 5)}
-            renderItem={renderRecentTransaction}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-          />
-        </View>
-      )}
+      {/* Filtered Results Modal */}
+      <Modal visible={showFilteredResults} transparent={false} animationType="slide">
+        <FilteredResultsScreen
+          onOpenFilters={() => {
+            setShowFilteredResults(false);
+            setFilterModalVisible(true);
+          }}
+        />
+      </Modal>
 
-      {/* Empty State */}
-      {accounts.length === 0 && (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyStateIcon}>📱</Text>
-          <Text style={styles.emptyStateTitle}>Get Started</Text>
-          <Text style={styles.emptyStateText}>
-            Add accounts or sync from SMS to see your transactions here
-          </Text>
-        </View>
-      )}
+      {/* Search Modal */}
+      <Modal visible={searchModalVisible} transparent={false} animationType="slide">
+        <SearchScreen
+          onClose={() => setSearchModalVisible(false)}
+        />
+      </Modal>
 
-      {/* Footer */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>💡 Tip: Sync your SMS to automatically detect transactions</Text>
-      </View>
-    </ScrollView>
+      {/* Filter Presets Modal */}
+      <Modal visible={presetsModalVisible} transparent={false} animationType="slide">
+        <FilterPresetsScreen
+          onClose={() => setPresetsModalVisible(false)}
+        />
+      </Modal>
+    </>
   );
 };
 
@@ -251,6 +565,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
   greeting: {
     fontSize: 24,
@@ -461,4 +778,161 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
   },
+  // SMS Section Styles
+  smsSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 12,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginHorizontal: 16,
+  },
+  smsButtonsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  smsButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#FF9500',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  smsButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+    textAlign: 'center',
+  },
+  progressContainer: {
+    marginTop: 12,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#34C759',
+    borderRadius: 3,
+  },
+  progressText: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center',
+  },
+  // Month Navigation Styles
+  monthNavigationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  monthNavButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+  },
+  monthNavText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  monthDisplay: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  monthText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  monthStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  monthStat: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  monthStatLabel: {
+    fontSize: 11,
+    color: '#999',
+    marginBottom: 4,
+  },
+  monthStatValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  monthStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#e0e0e0',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '80%',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#000',
+    marginVertical: 12,
+  },
+  modalMessage: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  modalProgress: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#007AFF',
+    marginTop: 8,
+  },
+  // Header Buttons (Search, Presets, Filters)
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerButtonText: {
+    fontSize: 18,
+  },
+  // Filter Modal Container
+  filterModalContainer: {
+    flex: 1,
+  },
 });
+
