@@ -18,11 +18,11 @@
  * - Better progress tracking
  */
 
-import { SMSService } from './sms';
-import { TransactionParser } from './parser';
-import { DatabaseService } from './database';
 import { RawSMS } from '../types';
-import type { AccountDetector } from './accountDetector';
+import { DatabaseService } from './database';
+import { TransactionParser } from './parser';
+import { SMSService } from './sms';
+import { SMSNativeService } from './smsNative';
 
 export interface SyncProgress {
   stage: 'permissions' | 'reading' | 'parsing' | 'processing' | 'storing' | 'complete' | 'listening';
@@ -85,15 +85,15 @@ export class SMSSyncManager {
     const errors: string[] = [];
 
     try {
-      // Step 1: Request Permissions
+      // Step 1: Request Permissions using NATIVE SERVICE
       this.notifyProgress({
         stage: 'permissions',
         current: 0,
         total: 1,
-        message: '📱 Requesting SMS permissions...',
+        message: '📱 Requesting SMS permissions from device...',
       });
 
-      const hasPermission = await SMSService.requestPermissions();
+      const hasPermission = await SMSNativeService.requestSMSPermission();
       if (!hasPermission) {
         return {
           success: false,
@@ -108,16 +108,16 @@ export class SMSSyncManager {
         };
       }
 
-      // Step 2: Read SMS (up to 1000 messages from last 90 days)
+      // Step 2: Read REAL SMS from device using NATIVE SERVICE
       this.notifyProgress({
         stage: 'reading',
         current: 0,
         total: 1,
-        message: '📨 Reading SMS from device (scanning up to 1000 messages)...',
+        message: '📨 Reading REAL SMS from Android device...',
       });
 
-      const unprocessedSms = await SMSService.getUnprocessedSMS();
-      const smsRead = unprocessedSms.length;
+      const realSMS = await SMSNativeService.readSMSFromDevice();
+      const smsRead = realSMS.length;
 
       this.notifyProgress({
         stage: 'reading',
@@ -140,20 +140,20 @@ export class SMSSyncManager {
         };
       }
 
-      // Step 3: Process SMS (may take longer with large volumes like 500-1000 messages)
+      // Step 3: Process REAL SMS (from native service)
       this.notifyProgress({
         stage: 'parsing',
         current: 0,
         total: smsRead,
-        message: `🔄 Processing ${smsRead} SMS messages... ${smsRead > 500 ? '(large volume - may take a moment)' : ''}`,
+        message: `🔄 Processing ${smsRead} REAL SMS messages from device...`,
       });
 
       let smsProcessed = 0;
       let transactionsStored = 0;
       let failed = 0;
 
-      for (let i = 0; i < unprocessedSms.length; i++) {
-        const sms = unprocessedSms[i];
+      for (let i = 0; i < realSMS.length; i++) {
+        const sms = realSMS[i];
 
         try {
           // Parse SMS
@@ -162,22 +162,22 @@ export class SMSSyncManager {
             smsProcessed++;
             transactionsStored++;
 
-            // Mark as processed
-            await SMSService.markProcessed(sms);
+            // Store directly in database since it's real SMS
+            await DatabaseService.addTransaction(userId, parsed);
           } else {
             failed++;
-            errors.push(`SMS ${sms.id}: Failed to parse`);
+            errors.push(`SMS from ${sms.address}: Failed to parse`);
           }
         } catch (error) {
           failed++;
-          errors.push(`SMS ${sms.id}: ${error instanceof Error ? error.message : String(error)}`);
+          errors.push(`SMS from ${sms.address}: ${error instanceof Error ? error.message : String(error)}`);
         }
 
         this.notifyProgress({
           stage: 'processing',
           current: i + 1,
           total: smsRead,
-          message: `Processed ${smsProcessed}/${smsRead} SMS`,
+          message: `Processed ${smsProcessed}/${smsRead} REAL SMS ✅`,
         });
       }
 

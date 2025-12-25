@@ -2,14 +2,15 @@
  * Services Index - Central export point for all services
  */
 
-export { SMSService } from './sms';
-export { TransactionParser, type ParsedSMS } from './parser';
-export { DatabaseService } from './database';
-export { AuthService } from './auth';
-export { supabase } from './supabase';
-export * from './categoryIntegration';
-export { PushNotificationService } from './pushNotifications';
 export { AdvancedAnalyticsService } from './advancedAnalytics';
+export { AuthService } from './auth';
+export * from './categoryIntegration';
+export { DatabaseService } from './database';
+export { TransactionParser, type ParsedSMS } from './parser';
+export { PushNotificationService } from './pushNotifications';
+export { SMSService } from './sms';
+export { SMSNativeService } from './smsNative';
+export { supabase } from './supabase';
 // export { SMSSyncManager } from './smsSyncManager';
 
 // Note: Import SMSSyncManager directly from './smsSyncManager' due to TypeScript resolution

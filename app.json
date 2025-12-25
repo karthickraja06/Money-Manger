@@ -50,6 +50,8 @@
       "reactCompiler": true
     },
     "extra": {
+      "EXPO_PUBLIC_SUPABASE_URL": "https://axzydsoxkpqqehotrewk.supabase.co",
+      "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_wsziPSJrhbvfwqtypncbtw_cqSlenVw",
       "router": {},
       "eas": {
         "projectId": "c730eec1-9390-4de0-abe4-2a87d545fc11"

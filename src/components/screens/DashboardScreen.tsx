@@ -4,7 +4,9 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Linking,
   Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -15,7 +17,7 @@ import {
 import { useFilter } from '../../context/FilterContext';
 import { useTheme } from '../../context/ThemeContext';
 import { DatabaseService } from '../../services/database';
-import { SMSService } from '../../services/sms';
+import { SMSNativeService } from '../../services/smsNative';
 import { SMSSyncManager, type SyncProgress } from '../../services/smsSyncManager';
 import { useStore } from '../../store/appStore';
 import { Account, Transaction } from '../../types';
@@ -71,8 +73,8 @@ export const DashboardScreen: React.FC = () => {
 
   const checkSmsPermissionStatus = async () => {
     try {
-      // Check if SMS permission has been previously granted
-      const granted = await SMSService.checkPermissionStatus();
+      // Check if SMS permission has been previously granted - USE NATIVE SERVICE
+      const granted = await SMSNativeService.checkSMSPermission();
       if (granted) {
         setSmsPermissionGranted(true);
         console.log('✅ SMS permission already granted');
@@ -86,8 +88,10 @@ export const DashboardScreen: React.FC = () => {
 
   const handleRequestSMSPermission = async () => {
     try {
-      console.log('📱 Requesting SMS permission...');
-      const granted = await SMSService.requestPermissions();
+      console.log('📱 Requesting SMS permission from native service...');
+      
+      // Use native service for real permission request
+      const granted = await SMSNativeService.requestSMSPermission();
       
       if (granted) {
         setSmsPermissionGranted(true);
@@ -96,12 +100,25 @@ export const DashboardScreen: React.FC = () => {
           'SMS permission granted! You can now import all your SMS transactions.'
         );
       } else {
+        // Permission was denied
         Alert.alert(
           '⚠️ Permission Denied', 
-          'SMS permission is required to read transactions. Please enable it in app settings.'
+          'SMS permission is required to read transactions. Please enable it in Settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Go to Settings', 
+              onPress: () => {
+                if (Platform.OS === 'android') {
+                  Linking.openSettings();
+                }
+              }
+            }
+          ]
         );
       }
     } catch (error) {
+      console.error('❌ Error requesting SMS permission:', error);
       Alert.alert('❌ Error', `Failed to request SMS permission: ${error}`);
     }
   };

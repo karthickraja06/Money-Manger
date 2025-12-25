@@ -38,6 +38,15 @@ yarn-error.*
 
 app-example
 
-# generated native folders
-/ios
-/android
+# Android build artifacts ONLY - keep source code
+/android/app/build/
+/android/app/debug/
+/android/app/release/
+/android/.gradle/
+/android/local.properties
+/android/*.iml
+
+# Keep Android source code
+!/android/app/src/main/java/
+!/android/app/src/main/AndroidManifest.xml
+
