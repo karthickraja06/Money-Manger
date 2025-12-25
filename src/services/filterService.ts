@@ -9,8 +9,8 @@
  * - Merchant analysis
  */
 
-import { Transaction } from '../types';
 import { FilterState } from '../context/FilterContext';
+import { Transaction } from '../types';
 
 export interface FilterStats {
   totalTransactions: number;
@@ -253,5 +253,21 @@ export class FilterService {
    */
   static getTopMerchants(stats: FilterStats, limit: number = 5) {
     return stats.byMerchant.slice(0, limit);
+  }
+
+  /**
+   * Filter transactions by refund status
+   */
+  static filterByRefundStatus(
+    transactions: Transaction[],
+    refundStatus: 'linked' | 'unlinked' | null
+  ): Transaction[] {
+    if (!refundStatus) return transactions;
+
+    return transactions.filter((txn) => {
+      if (refundStatus === 'linked') return txn.is_linked;
+      if (refundStatus === 'unlinked') return !txn.is_linked;
+      return true;
+    });
   }
 }

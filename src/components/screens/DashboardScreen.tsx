@@ -1,29 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  RefreshControl,
-  FlatList,
-  Dimensions,
   ActivityIndicator,
   Alert,
+  Dimensions,
+  FlatList,
   Modal,
-  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { useTheme } from '../../context/ThemeContext';
 import { useFilter } from '../../context/FilterContext';
+import { useTheme } from '../../context/ThemeContext';
 import { DatabaseService } from '../../services/database';
 import { SMSService } from '../../services/sms';
 import { SMSSyncManager, type SyncProgress } from '../../services/smsSyncManager';
 import { useStore } from '../../store/appStore';
 import { Account, Transaction } from '../../types';
+import { FilterPresetsScreen } from './FilterPresetsScreen';
 import { FilterScreen } from './FilterScreen';
 import { FilteredResultsScreen } from './FilteredResultsScreen';
 import { SearchScreen } from './SearchScreen';
-import { FilterPresetsScreen } from './FilterPresetsScreen';
 
 const { width } = Dimensions.get('window');
 
@@ -292,6 +291,8 @@ export const DashboardScreen: React.FC = () => {
     </View>
   );
 
+  // Budget summary integrated in BudgetScreen
+
   return (
     <>
       <ScrollView
@@ -385,7 +386,7 @@ export const DashboardScreen: React.FC = () => {
           </View>
           {smsSync.loading && (
             <View style={styles.progressContainer}>
-              <View style={[styles.progressBar, { backgroundColor: isDarkMode ? '#444' : '#e0e0e0' }]}>
+              <View style={[styles.progressBarSmall, { backgroundColor: isDarkMode ? '#444' : '#e0e0e0' }]}>
                 <View 
                   style={[
                     styles.progressFill, 
@@ -393,7 +394,7 @@ export const DashboardScreen: React.FC = () => {
                   ]} 
                 />
               </View>
-              <Text style={[styles.progressText, { color: isDarkMode ? '#aaa' : '#666' }]}>{smsSync.progress}% - {smsSync.message}</Text>
+              <Text style={[{ color: isDarkMode ? '#aaa' : '#666' }]}>{smsSync.progress}% - {smsSync.message}</Text>
             </View>
           )}
         </View>
@@ -485,6 +486,9 @@ export const DashboardScreen: React.FC = () => {
             </Text>
           </View>
         )}
+
+        {/* Budget Summary */}
+        {/* Budget summary integrated in BudgetScreen */}
 
         {/* Footer */}
         <View style={styles.footer}>
@@ -809,7 +813,7 @@ const styles = StyleSheet.create({
   progressContainer: {
     marginTop: 12,
   },
-  progressBar: {
+  progressBarSmall: {
     height: 6,
     backgroundColor: '#e0e0e0',
     borderRadius: 3,
@@ -820,11 +824,6 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#34C759',
     borderRadius: 3,
-  },
-  progressText: {
-    fontSize: 11,
-    color: '#666',
-    textAlign: 'center',
   },
   // Month Navigation Styles
   monthNavigationContainer: {
@@ -933,6 +932,33 @@ const styles = StyleSheet.create({
   // Filter Modal Container
   filterModalContainer: {
     flex: 1,
+  },
+  budgetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  budgetLabel: {
+    fontSize: 14,
+    color: '#000',
+  },
+  progressBarContainer: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#e0e0e0',
+    overflow: 'hidden',
+    marginHorizontal: 8,
+  },
+  progressBar: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: '#34C759',
+  },
+  budgetUsage: {
+    fontSize: 12,
+    color: '#666',
   },
 });
 

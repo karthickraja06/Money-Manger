@@ -3,25 +3,24 @@
  * Displays filtered transactions with statistics and charts
  */
 
-import React, { useEffect, useState } from 'react';
-import {
-  View,
-  ScrollView,
-  StyleSheet,
-  FlatList,
-  Dimensions,
-  ActivityIndicator,
-  TouchableOpacity,
-  SafeAreaView,
-} from 'react-native';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { useTheme } from '@/src/context/ThemeContext';
 import { useFilter } from '@/src/context/FilterContext';
+import { useTheme } from '@/src/context/ThemeContext';
 import { DatabaseService } from '@/src/services/database';
 import { FilterService, FilterStats } from '@/src/services/filterService';
 import { useStore } from '@/src/store/appStore';
 import { Transaction } from '@/src/types';
+import React, { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Dimensions,
+    FlatList,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 
 interface FilteredResultsScreenProps {
   onOpenFilters: () => void;
@@ -157,6 +156,35 @@ export function FilteredResultsScreen({ onOpenFilters }: FilteredResultsScreenPr
     );
   };
 
+  const updateFilter = (key: string, value: any) => {
+    // Update the filter context with the new value
+    // This function should be implemented to update the actual filter context
+  };
+
+  const renderRefundFilter = () => (
+    <View style={styles.section}>
+      <ThemedText style={styles.sectionTitle}>🔗 Refund Status</ThemedText>
+      <TouchableOpacity
+        style={[styles.filterButton, filters.refundStatus === 'linked' && styles.activeFilter]}
+        onPress={() => updateFilter('refundStatus', 'linked')}
+      >
+        <ThemedText>Linked Refunds</ThemedText>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.filterButton, filters.refundStatus === 'unlinked' && styles.activeFilter]}
+        onPress={() => updateFilter('refundStatus', 'unlinked')}
+      >
+        <ThemedText>Unlinked Refunds</ThemedText>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.filterButton, !filters.refundStatus && styles.activeFilter]}
+        onPress={() => updateFilter('refundStatus', null)}
+      >
+        <ThemedText>All Transactions</ThemedText>
+      </TouchableOpacity>
+    </View>
+  );
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: isDarkMode ? '#1a1a1a' : '#f9f9f9' }]}>
@@ -215,6 +243,9 @@ export function FilteredResultsScreen({ onOpenFilters }: FilteredResultsScreenPr
             {renderTopMerchants()}
           </>
         )}
+
+        {/* Refund Filter */}
+        {renderRefundFilter()}
 
         {/* Transactions List */}
         <View style={styles.section}>
@@ -412,5 +443,8 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 14,
     color: '#999',
+  },
+  activeFilter: {
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
   },
 });
